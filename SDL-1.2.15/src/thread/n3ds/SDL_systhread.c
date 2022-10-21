@@ -32,7 +32,7 @@
 #include <3ds.h>
 
 #define CURRENT_KTHREAD 0xFFFF8000
-#define STACKSIZE       (4 * 1024)
+#define STACKSIZE       (32 * 1024)
 #define APPCORE_CPUID   0
 
 void ThreadEntry(void *arg)

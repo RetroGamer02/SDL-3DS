@@ -60,7 +60,7 @@ do  echo "Generating dependencies for $src"
 	@echo "extern const u8 ${stem}_shbin[];" > \$(objects)/$hdr
 	@echo "extern const u8 ${stem}_shbin_end[];" >> \$(objects)/$hdr
 	@echo "extern const u32 ${stem}_shbin_size;" >> \$(objects)/$hdr
-	@bin2s \$(objects)/$shbin | arm-none-eabi-as -o \$(objects)/$obj
+	@C:\devkitPro\tools\bin\bin2s \$(objects)/$shbin | arm-none-eabi-as -o \$(objects)/$obj
 
 
 \$(objects)/$shbin: $src

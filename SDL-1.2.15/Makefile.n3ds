@@ -62,14 +62,14 @@ OBJS =	src/SDL.o \
 	src/video/n3ds/SDL_n3dsvideo.o \
 	src/video/n3ds/SDL_n3dsmouse.o \
 
-CTRULIB	:= $(DEVKITPRO)/libctru
+CTRULIB	:= $(DEVKITPRO)/libctru20
 INCLUDES = -I./include -I$(CTRULIB)/include
 
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
 ARCH		:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard
-CFLAGS		:=	-g -Wall -O2 -mword-relocations \
+CFLAGS		:=	-g -Wall -O3 -mword-relocations \
 				-fomit-frame-pointer -ffast-math \
 				$(ARCH)
 CFLAGS		+=	$(INCLUDES) -DARM11 -D_3DS -D__3DS__
@@ -94,8 +94,8 @@ $(TARGET_LIB): $(OBJS)
 	@echo $(notdir $<)
 	$(eval CURBIN := $(patsubst %.pica,%.shbin,$<))
 	$(eval CURH := $(patsubst %.pica,%.psh.h,$<))
-	@picasso -h $(CURH) -o $(CURBIN) $<
-	@bin2s $(CURBIN) | $(AS) -o $@
+	@C:\devkitPro\tools\bin\picasso -h $(CURH) -o $(CURBIN) $<
+	@C:\\devkitPro\\tools\\bin\\bin2s $(CURBIN) | $(AS) -o $@
 	@echo "extern const u8" `(echo $(notdir $(CURBIN)) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"_end[];" > `(echo $(CURBIN) | tr . _)`.h
 	@echo "extern const u8" `(echo $(notdir $(CURBIN)) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"[];" >> `(echo $(CURBIN) | tr . _)`.h
 	@echo "extern const u32" `(echo $(notdir $(CURBIN)) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`_size";" >> `(echo $(CURBIN) | tr . _)`.h

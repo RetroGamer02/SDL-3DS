@@ -35,6 +35,10 @@
 
 #include <3ds.h>
 
+#include <assert.h>
+
+#include <string.h>
+
 //extern volatile bool app_pause;
 extern volatile bool app_exiting;
 
@@ -42,6 +46,8 @@ size_t stream_offset = 0;
 
 /* The tag name used by N3DS audio */
 #define N3DSAUD_DRIVER_NAME         "n3ds"
+
+static SDL_AudioDevice *g_audDev;
 
 /* Audio driver functions */
 static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec);
@@ -54,6 +60,26 @@ static void N3DSAUD_CloseAudio(_THIS);
 static int N3DSAUD_Available(void)
 {
 	return(1);
+}
+
+static inline void contextLock(_THIS)
+{
+	LightLock_Lock(&this->hidden->lock);
+}
+
+static inline void contextUnlock(_THIS)
+{
+	LightLock_Unlock(&this->hidden->lock);
+}
+
+static void N3DSAUD_LockAudio(_THIS)
+{
+	SDL_mutexP(this->mixer_lock);
+}
+
+static void N3DSAUD_UnlockAudio(_THIS)
+{
+	SDL_mutexV(this->mixer_lock);
 }
 
 static void N3DSAUD_DeleteDevice(SDL_AudioDevice *device)
@@ -87,7 +113,21 @@ static SDL_AudioDevice *N3DSAUD_CreateDevice(int devindex)
 		}
 		return(0);
 	}
+
+	//start 3ds DSP init
+	Result rc = ndspInit();
+	if (R_FAILED(rc)) {
+		SDL_free(this);
+		if ((R_SUMMARY(rc) == RS_NOTFOUND) && (R_MODULE(rc) == RM_DSP))
+			SDL_SetError("DSP init failed: dspfirm.cdc missing!");
+		else
+			SDL_SetError("DSP init failed. Error code: 0x%X", rc);
+		return(0);
+	}
+
+	/* Initialize internal state */
 	SDL_memset(this->hidden, 0, (sizeof *this->hidden));
+	LightLock_Init(&this->hidden->lock);
 
 	/* Set the function pointers */
 	this->OpenAudio = N3DSAUD_OpenAudio;
@@ -96,6 +136,8 @@ static SDL_AudioDevice *N3DSAUD_CreateDevice(int devindex)
 	this->GetAudioBuf = N3DSAUD_GetAudioBuf;
 	this->CloseAudio = N3DSAUD_CloseAudio;
 //    this->ThreadInit = N3DSAUD_ThreadInit;
+	this->LockAudio = N3DSAUD_LockAudio;
+	this->UnlockAudio = N3DSAUD_UnlockAudio;
 	this->free = N3DSAUD_DeleteDevice;
 
 	return this;
@@ -144,12 +186,20 @@ static Uint8 *N3DSAUD_GetAudioBuf(_THIS)
 
 static void N3DSAUD_CloseAudio(_THIS)
 {
+	contextLock(this);
+
+	ndspSetCallback(NULL, NULL);
+	if (!this->hidden->isCancelled)
+		ndspChnReset(0);
+
 	if ( this->hidden->mixbuf != NULL ) {
 		SDL_FreeAudioMem(this->hidden->mixbuf);
 		this->hidden->mixbuf = NULL;
 	}
 	if 	( this->hidden->waveBuf!= NULL )
 		linearFree(this->hidden->waveBuf);
+		
+	contextUnlock(this);
 }
 
 /*
@@ -204,6 +254,8 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 	SDL_CalculateAudioSpec(spec);
 
 	/* Allocate mixing buffer */
+	if (spec->size >= UINT32_MAX/2)
+		return(-1);
 	this->hidden->mixlen = spec->size;
 	this->hidden->mixbuf = (Uint8 *) SDL_malloc(spec->size); 
 	if ( this->hidden->mixbuf == NULL ) {
@@ -213,6 +265,10 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 	SDL_memset(this->hidden->mixbuf, spec->silence, spec->size);
 	
 	Uint8 * temp = (Uint8 *) linearAlloc(this->hidden->mixlen*2); 
+	if (temp == NULL ) {
+		SDL_free(this->hidden->mixbuf);
+		return(-1);
+	}
 	memset(temp,0,this->hidden->mixlen*2);
 	DSP_FlushDataCache(temp,this->hidden->mixlen*2);
 	
