@@ -113,7 +113,7 @@ Mouse pointer is controlled with the touchpad. Touching the bottom screen contro
 AUDIO
 ============
 
-Supported audio format are AUDIO_S8 and AUDIO_S16.
+Supported audio format are AUDIO_S8, AUDIO_U8, AUDIO_S16 and AUDIO_U16.
 
 Audio uses the DSP, so to use it with a homebrew compiled as a CIA you need to dump the DSp Firm in the 3ds folder. 
 Audio thread would have a higher priority than the main thread, but it would give main thread a fixed time to process the audio. If you are experiencing problems with the audio, try using a larger sample buffer or change the delay time in SDL_n3dsaudio.c
