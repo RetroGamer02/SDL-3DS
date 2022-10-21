@@ -34,7 +34,6 @@
 #include "SDL_n3dsaudio.h"
 
 #include <3ds.h>
-
 #include <assert.h>
 
 #include <string.h>
@@ -148,6 +147,7 @@ AudioBootStrap N3DSAUD_bootstrap = {
 	N3DSAUD_Available, N3DSAUD_CreateDevice
 };
 
+
 /* This function waits until it is possible to write a full sound buffer */
 static void N3DSAUD_WaitAudio(_THIS)
 {
@@ -176,7 +176,7 @@ static void N3DSAUD_PlayAudio(_THIS)
 	this->hidden->waveBuf[this->hidden->nextbuf].status=NDSP_WBUF_QUEUED;
 	ndspChnWaveBufAdd(0, &this->hidden->waveBuf[this->hidden->nextbuf]);
 
-	this->hidden->nextbuf = (this->hidden->nextbuf+1)%2;
+	this->hidden->nextbuf = (this->hidden->nextbuf+1)%NUM_BUFFERS;
 }
 
 static Uint8 *N3DSAUD_GetAudioBuf(_THIS)
@@ -231,10 +231,24 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 				this->hidden->bytePerSample = (spec->channels);
 				   valid_datatype = 1;
 				break;
+			case AUDIO_U8:
+				/* Unsigned 8-bit audio supported */
+				this->hidden->format=(spec->channels==2)?format=NDSP_FORMAT_STEREO_PCM8:NDSP_FORMAT_MONO_PCM8;
+				this->hidden->isSigned=0;
+				this->hidden->bytePerSample = (spec->channels);
+				   valid_datatype = 1;
+				break;
 			case AUDIO_S16:
 				/* Signed 16-bit audio supported */
 				this->hidden->format=(spec->channels==2)?format=NDSP_FORMAT_STEREO_PCM16:NDSP_FORMAT_MONO_PCM16;
 				this->hidden->isSigned=1;
+				this->hidden->bytePerSample = (spec->channels) * 2;
+				   valid_datatype = 1;
+				break;
+			case AUDIO_U16:
+				/* Unsigned 16-bit audio supported */
+				this->hidden->format=(spec->channels==2)?format=NDSP_FORMAT_STEREO_PCM16:NDSP_FORMAT_MONO_PCM16;
+				this->hidden->isSigned=0;
 				this->hidden->bytePerSample = (spec->channels) * 2;
 				   valid_datatype = 1;
 				break;
@@ -257,21 +271,21 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 	if (spec->size >= UINT32_MAX/2)
 		return(-1);
 	this->hidden->mixlen = spec->size;
-	this->hidden->mixbuf = (Uint8 *) SDL_malloc(spec->size); 
+	this->hidden->mixbuf = (Uint8 *) SDL_AllocAudioMem(spec->size);
 	if ( this->hidden->mixbuf == NULL ) {
 		ndspExit();
 		return(-1);
 	}
 	SDL_memset(this->hidden->mixbuf, spec->silence, spec->size);
-	
-	Uint8 * temp = (Uint8 *) linearAlloc(this->hidden->mixlen*2); 
+
+	Uint8 * temp = (Uint8 *) linearAlloc(this->hidden->mixlen*NUM_BUFFERS);
 	if (temp == NULL ) {
 		SDL_free(this->hidden->mixbuf);
 		return(-1);
 	}
-	memset(temp,0,this->hidden->mixlen*2);
-	DSP_FlushDataCache(temp,this->hidden->mixlen*2);
-	
+	memset(temp,0,this->hidden->mixlen*NUM_BUFFERS);
+	DSP_FlushDataCache(temp,this->hidden->mixlen*NUM_BUFFERS);
+
 	this->hidden->nextbuf = 0;
 	this->hidden->channels = spec->channels;
 	this->hidden->samplerate = spec->freq;
@@ -290,8 +304,8 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 	mix[0] = 1.0;
 	mix[1] = 1.0;
 	ndspChnSetMix(0, mix);
-	
-	memset(this->hidden->waveBuf,0,sizeof(ndspWaveBuf)*2);
+
+	memset(this->hidden->waveBuf,0,sizeof(ndspWaveBuf)*NUM_BUFFERS);
 
 	this->hidden->waveBuf[0].data_vaddr = temp;
 	this->hidden->waveBuf[0].nsamples = this->hidden->mixlen / this->hidden->bytePerSample;
