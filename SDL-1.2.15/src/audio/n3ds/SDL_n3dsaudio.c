@@ -46,8 +46,6 @@ size_t stream_offset = 0;
 /* The tag name used by N3DS audio */
 #define N3DSAUD_DRIVER_NAME         "n3ds"
 
-static SDL_AudioDevice *g_audDev;
-
 /* Audio driver functions */
 static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec);
 static void N3DSAUD_WaitAudio(_THIS);
@@ -59,16 +57,6 @@ static void N3DSAUD_CloseAudio(_THIS);
 static int N3DSAUD_Available(void)
 {
 	return(1);
-}
-
-static inline void contextLock(_THIS)
-{
-	LightLock_Lock(&this->hidden->lock);
-}
-
-static inline void contextUnlock(_THIS)
-{
-	LightLock_Unlock(&this->hidden->lock);
 }
 
 static void N3DSAUD_LockAudio(_THIS)
@@ -126,7 +114,6 @@ static SDL_AudioDevice *N3DSAUD_CreateDevice(int devindex)
 
 	/* Initialize internal state */
 	SDL_memset(this->hidden, 0, (sizeof *this->hidden));
-	LightLock_Init(&this->hidden->lock);
 
 	/* Set the function pointers */
 	this->OpenAudio = N3DSAUD_OpenAudio;
@@ -146,7 +133,6 @@ AudioBootStrap N3DSAUD_bootstrap = {
 	N3DSAUD_DRIVER_NAME, "SDL N3DS audio driver",
 	N3DSAUD_Available, N3DSAUD_CreateDevice
 };
-
 
 /* This function waits until it is possible to write a full sound buffer */
 static void N3DSAUD_WaitAudio(_THIS)
@@ -186,20 +172,12 @@ static Uint8 *N3DSAUD_GetAudioBuf(_THIS)
 
 static void N3DSAUD_CloseAudio(_THIS)
 {
-	contextLock(this);
-
-	ndspSetCallback(NULL, NULL);
-	if (!this->hidden->isCancelled)
-		ndspChnReset(0);
-
 	if ( this->hidden->mixbuf != NULL ) {
 		SDL_FreeAudioMem(this->hidden->mixbuf);
 		this->hidden->mixbuf = NULL;
 	}
 	if 	( this->hidden->waveBuf!= NULL )
 		linearFree(this->hidden->waveBuf);
-		
-	contextUnlock(this);
 }
 
 /*
@@ -279,10 +257,6 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 	SDL_memset(this->hidden->mixbuf, spec->silence, spec->size);
 
 	Uint8 * temp = (Uint8 *) linearAlloc(this->hidden->mixlen*NUM_BUFFERS);
-	if (temp == NULL ) {
-		SDL_free(this->hidden->mixbuf);
-		return(-1);
-	}
 	memset(temp,0,this->hidden->mixlen*NUM_BUFFERS);
 	DSP_FlushDataCache(temp,this->hidden->mixlen*NUM_BUFFERS);
 
