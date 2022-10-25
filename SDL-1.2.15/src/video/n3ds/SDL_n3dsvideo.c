@@ -456,6 +456,9 @@ SDL_Surface *N3DS_SetVideoMode(_THIS, SDL_Surface *current,
 	int mode = this->hidden->mode;
 	if (mode==2) mode = 3;
 
+	_Bool isN3DS;
+    APT_CheckNew3DS(&isN3DS);
+
 	// Setup the textures
 	if(setVideoModecount>1)
 		C3D_TexDelete(&spritesheet_tex); // delete in case it was initialized before
@@ -466,7 +469,12 @@ SDL_Surface *N3DS_SetVideoMode(_THIS, SDL_Surface *current,
 	runThread = true;
 	LightEvent_Init(&privateVideoThreadEvent, RESET_ONESHOT);
  // libctru sys threads uses 0x18, so we use a lower priority, but higher than any other SDL thread
-	privateVideoThreadHandle = threadCreate(videoThread, (void *) this, STACKSIZE, 0x19, -2, true);
+	if(isN3DS)
+		privateVideoThreadHandle = threadCreate(videoThread, (void *) this, STACKSIZE, 0x19, 2, true);
+	else
+	{
+		privateVideoThreadHandle = threadCreate(videoThread, (void *) this, STACKSIZE, 0x19, -2, true);
+	}
 	this->hidden->currentVideoSurface = current;
 	/* We're done */
 

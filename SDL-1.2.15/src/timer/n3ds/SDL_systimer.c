@@ -28,7 +28,7 @@ Uint32 SDL_GetTicks (void) {
 
 void SDL_Delay (Uint32 ms) {
 #ifdef SDL_THREAD_N3DS
-	if (threadGetCurrent != NULL)
+	if (threadGetCurrent() != NULL)
 		svcSleepThread((Uint64)ms * 1000000);
 	else {
 #endif
