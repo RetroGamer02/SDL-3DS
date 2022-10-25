@@ -269,10 +269,24 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 				this->hidden->bytePerSample = (spec->channels);
 				   valid_datatype = 1;
 				break;
+			case AUDIO_U8:
+				/* Signed 8-bit audio supported */
+				this->hidden->format=(spec->channels==2)?NDSP_FORMAT_STEREO_PCM8:NDSP_FORMAT_MONO_PCM8;
+				this->hidden->isSigned=0;
+				this->hidden->bytePerSample = (spec->channels);
+				   valid_datatype = 1;
+				break;
 			case AUDIO_S16:
 				/* Signed 16-bit audio supported */
 				this->hidden->format=(spec->channels==2)?NDSP_FORMAT_STEREO_PCM16:NDSP_FORMAT_MONO_PCM16;
 				this->hidden->isSigned=1;
+				this->hidden->bytePerSample = (spec->channels) * 2;
+				   valid_datatype = 1;
+				break;
+			case AUDIO_U16:
+				/* Signed 16-bit audio supported */
+				this->hidden->format=(spec->channels==2)?NDSP_FORMAT_STEREO_PCM16:NDSP_FORMAT_MONO_PCM16;
+				this->hidden->isSigned=0;
 				this->hidden->bytePerSample = (spec->channels) * 2;
 				   valid_datatype = 1;
 				break;
