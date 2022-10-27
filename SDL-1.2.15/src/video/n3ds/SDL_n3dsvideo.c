@@ -260,7 +260,8 @@ void N3DS_SetScaling(_THIS)
 		this->hidden->scaley= 240.0/(float)this->hidden->h1;
 	} else if(this->hidden->fitscreen & SDL_4BY3) {
 		this->hidden->scaley= 240.0/(float)this->hidden->h1;
-		this->hidden->scalex= 1.0f;
+		this->hidden->scalex= 320.0/(float)this->hidden->w1;
+		//this->hidden->scalex= 1.0f;
 	} else if(this->hidden->fitscreen & SDL_FITWIDTH) {
 		this->hidden->scalex= 400.0/(float)this->hidden->w1;
 		this->hidden->scaley= this->hidden->scalex;//1.0f;
