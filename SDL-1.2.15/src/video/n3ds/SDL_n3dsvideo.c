@@ -242,18 +242,29 @@ SDL_Rect **N3DS_ListModes(_THIS, SDL_PixelFormat *format, Uint32 flags)
 void N3DS_SetScaling(_THIS)
 {
 	if(this->hidden->flags & SDL_FULLSCREEN)
+	{
 //		flags |= (SDL_FITWIDTH | SDL_FITHEIGHT);
 		this->hidden->fitscreen = (SDL_FITWIDTH | SDL_FITHEIGHT);
+	}
+	else if (this->hidden->flags & SDL_4BY3)
+	{
+		this->hidden->fitscreen = this->hidden->flags & (SDL_4BY3);
+	}
 	else
+	{
 		this->hidden->fitscreen = this->hidden->flags & (SDL_FITWIDTH | SDL_FITHEIGHT);
+	}
 
 	if((this->hidden->fitscreen & SDL_FITWIDTH)&&(this->hidden->fitscreen & SDL_FITHEIGHT)) {
 		this->hidden->scalex= 400.0/(float)this->hidden->w1;
 		this->hidden->scaley= 240.0/(float)this->hidden->h1;
+	} else if(this->hidden->fitscreen & SDL_4BY3) {
+		this->hidden->scaley= 240.0/(float)this->hidden->h1;
+		this->hidden->scalex= 1.0f;
 	} else if(this->hidden->fitscreen & SDL_FITWIDTH) {
 		this->hidden->scalex= 400.0/(float)this->hidden->w1;
 		this->hidden->scaley= this->hidden->scalex;//1.0f;
-	} else 	if(this->hidden->fitscreen & SDL_FITHEIGHT) {
+	} else if(this->hidden->fitscreen & SDL_FITHEIGHT) {
 		this->hidden->scaley= 240.0/(float)this->hidden->h1;
 		this->hidden->scalex= this->hidden->scaley;//1.0f;
 	} else {
