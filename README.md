@@ -53,6 +53,7 @@ With these video sizes can be used the following options:
 - SDL_TOPSCR: select the top screen for rendering the video device (it's the default option, so you don't really need to set this flag)
 - SDL_BOTTOMSCR: select the bottom screen for rendering the video device
 - SDL_DUALSCR: draws the upper half of the video device on the top screeen and the lower half on the bottom screen
+- SDL_4BY3: resizes the video device to fit a 4:3 aspect ratio.
 - SDL_FITWIDTH: resizes the video device to fit the selected screen width (if SDL_DUALSCR is set, its' resized to 400 pixel width)
 - SDL_FITHEIGHT: resizes the video device to fit the screen/screens height
 - SDL_CONSOLETOP: enables console output on the top screen (only if SDL_TOPSCR or SDL_FULLSCREEN are not set)  
