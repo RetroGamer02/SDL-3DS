@@ -62,7 +62,7 @@ OBJS =	src/SDL.o \
 	src/video/n3ds/SDL_n3dsvideo.o \
 	src/video/n3ds/SDL_n3dsmouse.o \
 
-CTRULIB	:= $(DEVKITPRO)/libctru20
+CTRULIB	:= $(DEVKITPRO)/libctru22
 INCLUDES = -I./include -I$(CTRULIB)/include
 
 #---------------------------------------------------------------------------------
