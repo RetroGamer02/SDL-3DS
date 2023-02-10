@@ -43,6 +43,8 @@ struct SDL_PrivateAudioData {
 	Uint32 nextbuf;
 	ndspWaveBuf waveBuf[NUM_BUFFERS];
 	LightLock lock;
+    CondVar cv;
+    bool isCancelled;
 };
 
 #endif /* _SDL_n3dsaudio_h */

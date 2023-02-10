@@ -31,9 +31,7 @@
 #include "../SDL_thread_c.h"
 #include <3ds.h>
 
-#define CURRENT_KTHREAD 0xFFFF8000
-#define STACKSIZE       (32 * 1024)
-#define APPCORE_CPUID   0
+#define STACKSIZE       (128 * 1024)
 
 void ThreadEntry(void *arg)
 {
@@ -46,7 +44,7 @@ int SDL_SYS_CreateThread(SDL_Thread *thread, void *args)
 	s32 priority = 0x30;
 
 	/* Set priority of new thread higher than the current thread */
-	svcGetThreadPriority(&priority, CURRENT_KTHREAD);
+	svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
 	if(priority>0x19) priority--;
 	else priority = 0x19; //priority 0x18 is for video thread that is activated by a signal and than must run at maximum priority to avoid flickering
 	if(priority>0x2F) priority = 0x2F;
@@ -60,7 +58,7 @@ int SDL_SYS_CreateThread(SDL_Thread *thread, void *args)
 	SDL_SetError("Create Thread failed");
 	return(-1);
 	}
- 
+
 	return 0;
 }
 

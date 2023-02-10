@@ -106,9 +106,5 @@
 #undef __WIN32__
 #define __WIN32__	1
 #endif
-#if defined(_3DS)
-#undef __N3DS__
-#define __N3DS__	1
-#endif
 
 #endif /* _SDL_platform_h */

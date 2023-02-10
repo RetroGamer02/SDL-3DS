@@ -37,8 +37,6 @@
 #include "SDL_n3dsevents_c.h"
 #include "SDL_n3dsmouse_c.h"
 
-#include <stdlib.h>
-
 #define N3DSVID_DRIVER_NAME "n3ds"
 
 /* Low level N3ds */
@@ -110,8 +108,6 @@ volatile bool runThread = false;
 LightEvent privateVideoThreadEvent;
 Thread privateVideoThreadHandle = NULL;
 static void videoThread(void* data);
-extern volatile bool app_pause;
-extern volatile bool app_exiting;
 
 /* Initialization/Query functions */
 static int N3DS_VideoInit(_THIS, SDL_PixelFormat *vformat);
@@ -468,9 +464,6 @@ SDL_Surface *N3DS_SetVideoMode(_THIS, SDL_Surface *current,
 	int mode = this->hidden->mode;
 	if (mode==2) mode = 3;
 
-	_Bool isN3DS;
-    APT_CheckNew3DS(&isN3DS);
-
 	// Setup the textures
 	if(setVideoModecount>1)
 		C3D_TexDelete(&spritesheet_tex); // delete in case it was initialized before
@@ -481,12 +474,7 @@ SDL_Surface *N3DS_SetVideoMode(_THIS, SDL_Surface *current,
 	runThread = true;
 	LightEvent_Init(&privateVideoThreadEvent, RESET_ONESHOT);
  // libctru sys threads uses 0x18, so we use a lower priority, but higher than any other SDL thread
-	if(isN3DS)
-		privateVideoThreadHandle = threadCreate(videoThread, (void *) this, STACKSIZE, 0x19, 2, true);
-	else
-	{
-		privateVideoThreadHandle = threadCreate(videoThread, (void *) this, STACKSIZE, 0x19, -2, true);
-	}
+	privateVideoThreadHandle = threadCreate(videoThread, (void *) this, STACKSIZE, 0x19, -2, true);
 	this->hidden->currentVideoSurface = current;
 	/* We're done */
 
@@ -526,7 +514,7 @@ static void videoThread(void* data)
 		if (!runThread)
 			break;
 
-		if(!app_pause && !app_exiting) {
+		if(gspHasGpuRight()) {
 			if (C3D_FrameBegin(C3D_FRAME_SYNCDRAW)){
 //			if (C3D_FrameBegin(C3D_FRAME_NONBLOCK)){
 				if (this->hidden->screens & SDL_TOPSCR) {
@@ -554,7 +542,7 @@ static void drawBuffers(_THIS)
 {
 	if(this->hidden->buffer) {
 
-		if(!!app_pause && !app_exiting) return; // Blocking video output if the application is closing
+		if(!gspHasGpuRight()) return; // Blocking video output if the application is closing
 
 		GSPGPU_FlushDataCache(this->hidden->buffer, this->hidden->w*this->hidden->h*this->hidden->byteperpixel);
 
@@ -578,7 +566,7 @@ static void drawBuffers(_THIS)
 
 static void N3DS_UpdateRects(_THIS, int numrects, SDL_Rect *rects)
 {
-	if(!!app_pause && !app_exiting) return; //Block video output on quitting
+	if(!gspHasGpuRight()) return; //Block video output on quitting
 
 	if( this->hidden->bpp == 8) {
 /*
@@ -644,7 +632,7 @@ static int N3DS_SetColors(_THIS, int firstcolor, int ncolors, SDL_Color *colors)
 
 static int N3DS_FlipHWSurface (_THIS, SDL_Surface *surface) {
 
-	if(!!app_pause && !app_exiting) return(0); //Block video output on quitting
+	if(!gspHasGpuRight()) return(0); //Block video output on quitting
 
 	if(this->hidden->bpp == 8) {
 		Uint8 *src_addr;

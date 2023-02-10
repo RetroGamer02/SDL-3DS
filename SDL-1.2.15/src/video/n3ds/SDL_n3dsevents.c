@@ -33,64 +33,35 @@
 #include "SDL_n3dsvideo.h"
 #include "SDL_n3dsevents_c.h"
 
-static aptHookCookie cookie;
-volatile bool app_pause = false;
-volatile bool app_exiting = false;
-
-static void task_apt_hook(APT_HookType hook, void* param) {
-    
-	switch(hook) {
-		case APTHOOK_ONSUSPEND:
-			app_pause = true;
-            break;
-        case APTHOOK_ONRESTORE:
-			app_pause = false;
-			app_exiting = false;
-            break;
-        case APTHOOK_ONEXIT:
-			app_exiting = true;
-            break;
-        default:
-            break;
-    }
-}
-
-void task_init() {
-    aptHook(&cookie, task_apt_hook, NULL);
-	app_pause = false;
-	app_exiting = false;
-}
-
-void task_exit() {
-    aptUnhook(&cookie);
-}
-
 void N3DS_PumpEvents(_THIS)
 {
 	svcSleepThread(100000); // 0.1 ms
-	
-	if (app_pause) return;
-	
-	if(!aptMainLoop())
+
+	if (!aptMainLoop())
 	{
-		SDL_Event sdlevent;
-		sdlevent.type = SDL_QUIT;
-		SDL_PushEvent(&sdlevent);
-	} 
-	
+		static bool pushedQuit = false;
+		if (!pushedQuit) {
+			SDL_Event sdlevent;
+			sdlevent.type = SDL_QUIT;
+			SDL_PushEvent(&sdlevent);
+			pushedQuit = true;
+		}
+		return;
+	}
+
 	hidScanInput();
 
 	if (hidKeysHeld() & KEY_TOUCH) {
 		touchPosition touch;
 
 		hidTouchRead (&touch);
-		
+
 // TO DO: handle fit screen on x and y.Y and Y to be considered separately
-		
+
 		if(this->hidden->screens&SDL_TOPSCR && this->hidden->screens&SDL_BOTTOMSCR) {
 			if (touch.px != 0 || touch.py != 0) {
-				SDL_PrivateMouseMotion (0, 0, 
-					touch.px  + (this->hidden->w1 - 320)/2, 
+				SDL_PrivateMouseMotion (0, 0,
+					touch.px  + (this->hidden->w1 - 320)/2,
 					this->hidden->y2 + touch.py + (this->hidden->h2 - 240)/2);
 				if (!SDL_GetMouseState (NULL, NULL))
 					SDL_PrivateMouseButton (SDL_PRESSED, 1, 0, 0);

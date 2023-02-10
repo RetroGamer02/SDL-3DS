@@ -10,51 +10,19 @@
 #include "SDL_error.h"
 #include "../SDL_timer_c.h"
 
-static struct timeval start;
+static u64 g_startTicks;
 
 void SDL_StartTicks (void) {
-	gettimeofday (&start, NULL);
+	g_startTicks = svcGetSystemTick();
 }
 
 Uint32 SDL_GetTicks (void) {
-	Uint32 ticks;
-	struct timeval now;
-
-	gettimeofday (&now, NULL);
-	ticks = (now.tv_sec - start.tv_sec) * 1000 + (now.tv_usec - start.tv_usec) / 1000;
-
-	return (ticks);
+	u64 elapsed = svcGetSystemTick() - g_startTicks;
+	return elapsed * 1000 / SYSCLOCK_ARM11;
 }
 
 void SDL_Delay (Uint32 ms) {
-#ifdef SDL_THREAD_N3DS
-	if (threadGetCurrent() != NULL)
-		svcSleepThread((Uint64)ms * 1000000);
-	else {
-#endif
-	int was_error;
-	struct timeval tv;
-	Uint32 then, now, elapsed;
-
-	then = SDL_GetTicks();
-
-	do {
-		now = SDL_GetTicks ();
-		elapsed = (now - then);
-		then = now;
-		if (elapsed >= ms) {
-			break;
-		}
-		ms -= elapsed;
-
-		tv.tv_sec = ms / 1000;
-		tv.tv_usec = (ms % 1000) * 1000;
-
-		was_error = select(0, NULL, NULL, NULL, &tv);
-	} while (was_error);
-#ifdef SDL_THREAD_N3DS
-	}
-#endif
+	svcSleepThread((u64)ms * 1000000ULL);
 }
 
 int SDL_SYS_TimerInit (void) {

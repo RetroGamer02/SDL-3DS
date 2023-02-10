@@ -36,16 +36,11 @@
 #include <3ds.h>
 #include <assert.h>
 
-//extern volatile bool app_pause;
-extern volatile bool app_exiting;
-
-static Handle wbufDoneEvent;
-static aptHookCookie aptCookie;
-
-static const u64 EventTimeout = 1000LL * 1000LL * 100LL;	// 100 ms
-
 /* The tag name used by N3DS audio */
 #define N3DSAUD_DRIVER_NAME         "n3ds"
+
+static dspHookCookie g_dspHook;
+static SDL_AudioDevice *g_audDev;
 
 /* Audio driver functions */
 static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec);
@@ -87,14 +82,13 @@ static void N3DSAUD_DeleteDevice(SDL_AudioDevice *device)
 		device->hidden->mixbuf = NULL;
 	}
 	if 	( device->hidden->waveBuf[0].data_vaddr!= NULL ) {
-		linearFree(device->hidden->waveBuf[0].data_vaddr);
+		linearFree((void*)device->hidden->waveBuf[0].data_vaddr);
 		device->hidden->waveBuf[0].data_vaddr = NULL;
 	}
 
 	ndspExit();
 
 	SDL_free(device->hidden);
-
 	SDL_free(device);
 }
 
@@ -116,7 +110,22 @@ static SDL_AudioDevice *N3DSAUD_CreateDevice(int devindex)
 		}
 		return(0);
 	}
+
+	//start 3ds DSP init
+	Result rc = ndspInit();
+	if (R_FAILED(rc)) {
+		SDL_free(this);
+		if ((R_SUMMARY(rc) == RS_NOTFOUND) && (R_MODULE(rc) == RM_DSP))
+			SDL_SetError("DSP init failed: dspfirm.cdc missing!");
+		else
+			SDL_SetError("DSP init failed. Error code: 0x%X", rc);
+		return(0);
+	}
+
+	/* Initialize internal state */
 	SDL_memset(this->hidden, 0, (sizeof *this->hidden));
+	LightLock_Init(&this->hidden->lock);
+	CondVar_Init(&this->hidden->cv);
 
 	/* Set the function pointers */
 	this->OpenAudio = N3DSAUD_OpenAudio;
@@ -136,87 +145,70 @@ AudioBootStrap N3DSAUD_bootstrap = {
 	N3DSAUD_Available, N3DSAUD_CreateDevice
 };
 
-
-static void aptCallback(APT_HookType hook, void* param)
-{
-	switch (hook)
-	{
-		case APTHOOK_ONEXIT:
-			app_exiting = true;
-			svcSignalEvent(wbufDoneEvent);
-			break;
-		default:
-			break;
-	}
-}
-
 /* called by ndsp thread on each audio frame */
 static void audioFrameFinished(void *context)
 {
 	SDL_AudioDevice *this = (SDL_AudioDevice *) context;
 
 	contextLock(this);
-	bool done = this->hidden->waveBuf[this->hidden->nextbuf].status == NDSP_WBUF_DONE;
-	contextUnlock(this);
 
-	if (done)
-	{
-		svcSignalEvent(wbufDoneEvent);
+	bool shouldBroadcast = false;
+	unsigned i;
+	for (i = 0; i < NUM_BUFFERS; i ++) {
+		if (this->hidden->waveBuf[i].status == NDSP_WBUF_DONE) {
+			this->hidden->waveBuf[i].status = NDSP_WBUF_FREE;
+			shouldBroadcast = true;
+		}
 	}
+
+	if (shouldBroadcast)
+		CondVar_Broadcast(&this->hidden->cv);
+
+	contextUnlock(this);
 }
 
 /* This function blocks until it is possible to write a full sound buffer */
 static void N3DSAUD_WaitAudio(_THIS)
 {
-	bool not_done;
-	size_t wait_index;
-
 	contextLock(this);
-	wait_index = this->hidden->nextbuf;
-
-retry:
-			
-	not_done = this->hidden->waveBuf[wait_index].status != NDSP_WBUF_DONE;
+	while (!this->hidden->isCancelled && this->hidden->waveBuf[this->hidden->nextbuf].status != NDSP_WBUF_FREE) {
+		CondVar_Wait(&this->hidden->cv, &this->hidden->lock);
+	}
 	contextUnlock(this);
+}
 
-	if (not_done)
+static void N3DSAUD_DspHook(DSP_HookType hook)
+{
+	if (hook == DSPHOOK_ONCANCEL)
 	{
-		svcWaitSynchronization(wbufDoneEvent, EventTimeout);
-		
-		if (app_exiting)
-		{
-			return;
-		}
-
-		contextLock(this);
-		goto retry;
+		contextLock(g_audDev);
+		g_audDev->hidden->isCancelled = true;
+		g_audDev->enabled = false;
+		CondVar_Broadcast(&g_audDev->hidden->cv);
+		contextUnlock(g_audDev);
 	}
 }
 
 static void N3DSAUD_PlayAudio(_THIS)
 {
-	if (app_exiting) return;
-
 	contextLock(this);
 
 	size_t nextbuf = this->hidden->nextbuf;
 	size_t sampleLen = this->hidden->mixlen;
 
-	assert(this->hidden->waveBuf[nextbuf].status == NDSP_WBUF_DONE);
-
-	this->hidden->nextbuf = (nextbuf + 1) % NUM_BUFFERS;
-	contextUnlock(this);
-
-	if (this->hidden->format==NDSP_FORMAT_STEREO_PCM8 || this->hidden->format==NDSP_FORMAT_MONO_PCM8) {
-		memcpy(this->hidden->waveBuf[nextbuf].data_pcm8,this->hidden->mixbuf,sampleLen);
-		DSP_FlushDataCache(this->hidden->waveBuf[nextbuf].data_pcm8,sampleLen);
-	} else {
-		memcpy(this->hidden->waveBuf[nextbuf].data_pcm16,this->hidden->mixbuf,sampleLen);
-		DSP_FlushDataCache(this->hidden->waveBuf[nextbuf].data_pcm16,sampleLen);
+	if (this->hidden->isCancelled || this->hidden->waveBuf[nextbuf].status != NDSP_WBUF_FREE)
+	{
+		contextUnlock(this);
+		return;
 	}
 
-	this->hidden->waveBuf[nextbuf].offset=0;
-	this->hidden->waveBuf[nextbuf].status=NDSP_WBUF_QUEUED;
+	this->hidden->nextbuf = (nextbuf + 1) % NUM_BUFFERS;
+
+	contextUnlock(this);
+
+	memcpy((void*)this->hidden->waveBuf[nextbuf].data_vaddr,this->hidden->mixbuf,sampleLen);
+	DSP_FlushDataCache(this->hidden->waveBuf[nextbuf].data_vaddr,sampleLen);
+
 	ndspChnWaveBufAdd(0, &this->hidden->waveBuf[nextbuf]);
 }
 
@@ -229,13 +221,23 @@ static void N3DSAUD_CloseAudio(_THIS)
 {
 	contextLock(this);
 
+	dspUnhook(&g_dspHook);
+	ndspSetCallback(NULL, NULL);
+	if (!this->hidden->isCancelled)
+		ndspChnReset(0);
+
 	if ( this->hidden->mixbuf != NULL ) {
 		SDL_FreeAudioMem(this->hidden->mixbuf);
 		this->hidden->mixbuf = NULL;
 	}
 	if ( this->hidden->waveBuf[0].data_vaddr!= NULL ) {
-		linearFree(this->hidden->waveBuf[0].data_vaddr);
+		linearFree((void*)this->hidden->waveBuf[0].data_vaddr);
 		this->hidden->waveBuf[0].data_vaddr = NULL;
+	}
+
+	if (!this->hidden->isCancelled) {
+		memset(this->hidden->waveBuf,0,sizeof(ndspWaveBuf)*NUM_BUFFERS);
+		CondVar_Broadcast(&this->hidden->cv);
 	}
 
 	contextUnlock(this);
@@ -243,14 +245,9 @@ static void N3DSAUD_CloseAudio(_THIS)
 
 static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 {
-   //start 3ds DSP init
-	Result rc = ndspInit();
-	if (R_FAILED(rc)) {
-		if ((R_SUMMARY(rc) == RS_NOTFOUND) && (R_MODULE(rc) == RM_DSP))
-			SDL_SetError("DSP init failed: dspfirm.cdc missing!");
-		else
-			SDL_SetError("DSP init failed. Error code: 0x%X", rc);
-		return -1;
+	if (this->hidden->isCancelled) {
+		SDL_SetError("DSP is in cancelled state");
+		return (-1);
 	}
 
 	if(spec->channels > 2)
@@ -261,7 +258,6 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
     while ((!valid_datatype) && (test_format)) {
         spec->format = test_format;
         switch (test_format) {
-
 			case AUDIO_S8:
 				/* Signed 8-bit audio supported */
 				this->hidden->format=(spec->channels==2)?NDSP_FORMAT_STEREO_PCM8:NDSP_FORMAT_MONO_PCM8;
@@ -269,24 +265,10 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 				this->hidden->bytePerSample = (spec->channels);
 				   valid_datatype = 1;
 				break;
-			case AUDIO_U8:
-				/* Signed 8-bit audio supported */
-				this->hidden->format=(spec->channels==2)?NDSP_FORMAT_STEREO_PCM8:NDSP_FORMAT_MONO_PCM8;
-				this->hidden->isSigned=0;
-				this->hidden->bytePerSample = (spec->channels);
-				   valid_datatype = 1;
-				break;
 			case AUDIO_S16:
 				/* Signed 16-bit audio supported */
 				this->hidden->format=(spec->channels==2)?NDSP_FORMAT_STEREO_PCM16:NDSP_FORMAT_MONO_PCM16;
 				this->hidden->isSigned=1;
-				this->hidden->bytePerSample = (spec->channels) * 2;
-				   valid_datatype = 1;
-				break;
-			case AUDIO_U16:
-				/* Signed 16-bit audio supported */
-				this->hidden->format=(spec->channels==2)?NDSP_FORMAT_STEREO_PCM16:NDSP_FORMAT_MONO_PCM16;
-				this->hidden->isSigned=0;
 				this->hidden->bytePerSample = (spec->channels) * 2;
 				   valid_datatype = 1;
 				break;
@@ -298,7 +280,6 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 
     if (!valid_datatype) {  /* shouldn't happen, but just in case... */
         SDL_SetError("Unsupported audio format");
-		ndspExit();
         return (-1);
     }
 
@@ -307,14 +288,10 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 
 	/* Allocate mixing buffer */
 	if (spec->size >= UINT32_MAX/2)
-	{
-		ndspExit();
 		return(-1);
-	}
 	this->hidden->mixlen = spec->size;
-	this->hidden->mixbuf = (Uint8 *) SDL_AllocAudioMem(spec->size); 
+	this->hidden->mixbuf = (Uint8 *) SDL_AllocAudioMem(spec->size);
 	if ( this->hidden->mixbuf == NULL ) {
-		ndspExit();
 		return(-1);
 	}
 	SDL_memset(this->hidden->mixbuf, spec->silence, spec->size);
@@ -322,7 +299,6 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 	Uint8 * temp = (Uint8 *) linearAlloc(this->hidden->mixlen*NUM_BUFFERS);
 	if (temp == NULL ) {
 		SDL_free(this->hidden->mixbuf);
-		ndspExit();
 		return(-1);
 	}
 	memset(temp,0,this->hidden->mixlen*NUM_BUFFERS);
@@ -332,12 +308,7 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 	this->hidden->channels = spec->channels;
 	this->hidden->samplerate = spec->freq;
 
-	LightLock_Init(&this->hidden->lock);
-
-	ndspChnWaveBufClear(0);
  	ndspChnReset(0);
-
-	ndspSetOutputMode((this->hidden->channels==2)?NDSP_OUTPUT_STEREO:NDSP_OUTPUT_MONO);
 
 	ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
 	ndspChnSetRate(0, spec->freq);
@@ -351,21 +322,17 @@ static int N3DSAUD_OpenAudio(_THIS, SDL_AudioSpec *spec)
 
 	memset(this->hidden->waveBuf,0,sizeof(ndspWaveBuf)*NUM_BUFFERS);
 
-	this->hidden->waveBuf[0].data_vaddr = temp;
-	this->hidden->waveBuf[0].nsamples = this->hidden->mixlen / this->hidden->bytePerSample;
-	this->hidden->waveBuf[0].status = NDSP_WBUF_DONE;
-
-	this->hidden->waveBuf[1].data_vaddr = temp + this->hidden->mixlen;
-	this->hidden->waveBuf[1].nsamples = this->hidden->mixlen / this->hidden->bytePerSample;
-	this->hidden->waveBuf[1].status = NDSP_WBUF_DONE;
+	unsigned i;
+	for (i = 0; i < NUM_BUFFERS; i ++) {
+		this->hidden->waveBuf[i].data_vaddr = temp;
+		this->hidden->waveBuf[i].nsamples = this->hidden->mixlen / this->hidden->bytePerSample;
+		temp += this->hidden->mixlen;
+	}
 
 	/* Setup callback */
-	svcCreateEvent(&wbufDoneEvent, RESET_ONESHOT);
+	g_audDev = this;
 	ndspSetCallback(audioFrameFinished, this);
-
-	aptHook(&aptCookie, aptCallback, NULL);
-
-    // end 3ds DSP init
+	dspHook(&g_dspHook, N3DSAUD_DspHook);
 
 	/* We're ready to rock and roll. :-) */
 	return(0);

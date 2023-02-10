@@ -24,14 +24,11 @@
 
 #include "SDL_n3dsvideo.h"
 
-/* Variables and functions exported by SDL_sysevents.c to other parts 
+/* Variables and functions exported by SDL_sysevents.c to other parts
    of the native video subsystem (SDL_sysvideo.c)
 */
 extern void N3DS_InitOSKeymap(_THIS);
 extern void N3DS_PumpEvents(_THIS);
-
-void task_init();
-void task_exit();
 
 /* end of SDL_nullevents_c.h ... */
 

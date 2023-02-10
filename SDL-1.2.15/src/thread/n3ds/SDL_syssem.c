@@ -31,7 +31,7 @@
 #include <3ds.h>
 
 struct SDL_semaphore {
-    Handle  semid;
+    LightSemaphore sem;
 };
 
 
@@ -42,13 +42,7 @@ SDL_sem *SDL_CreateSemaphore(Uint32 initial_value)
 
     sem = (SDL_sem *) malloc(sizeof(*sem));
     if (sem != NULL) {
-        /* TODO: Figure out the limit on the maximum value. */
-        svcCreateSemaphore(&sem->semid, initial_value, 255);
-        if (sem->semid < 0) {
-            SDL_SetError("Couldn't create semaphore");
-            free(sem);
-            sem = NULL;
-        }
+        LightSemaphore_Init(&sem->sem, initial_value, 255);
     } else {
         SDL_OutOfMemory();
     }
@@ -60,31 +54,30 @@ SDL_sem *SDL_CreateSemaphore(Uint32 initial_value)
 void SDL_DestroySemaphore(SDL_sem *sem)
 {
     if (sem != NULL) {
-        if (sem->semid > 0) {
-	    svcCloseHandle(sem->semid);
-            sem->semid = 0;
-        }
-
         free(sem);
     }
 }
 
-/* TODO: This routine is a bit overloaded.
- * If the timeout is 0 then just poll the semaphore; if it's SDL_MUTEX_MAXWAIT, pass
- * NULL to sceKernelWaitSema() so that it waits indefinitely; and if the timeout
- * is specified, convert it to microseconds. */
+/* Waits on a semaphore */
 int SDL_SemWaitTimeout(SDL_sem *sem, Uint32 timeout)
 {
-    unsigned int res;
-
     if (sem == NULL) {
         SDL_SetError("Passed a NULL sem");
-        return 0;
+        return -1;
     }
 
-    res = svcWaitSynchronization(sem->semid, (timeout == SDL_MUTEX_MAXWAIT) ? U64_MAX : (signed long long)timeout*1000000);
-
-    return (res == 0) ? 0 : SDL_MUTEX_TIMEDOUT;
+    if (timeout == SDL_MUTEX_MAXWAIT) {
+        LightSemaphore_Acquire(&sem->sem, 1);
+        return 0;
+    }
+    else if (timeout == 0) {
+        int rc = LightSemaphore_TryAcquire(&sem->sem, 1);
+        return rc != 0 ? SDL_MUTEX_TIMEDOUT : 0;
+    }
+    else {
+        SDL_SetError("Non-trivial semaphore wait timeout values not supported");
+        return -1;
+    }
 }
 
 int SDL_SemTryWait(SDL_sem *sem)
@@ -100,33 +93,11 @@ int SDL_SemWait(SDL_sem *sem)
 /* Returns the current count of the semaphore */
 Uint32 SDL_SemValue(SDL_sem *sem)
 {
-    Sint32 value;
-
-    if (sem == NULL) {
-        SDL_SetError("Passed a NULL sem");
-        return 0;
-    }
-
-    svcReleaseSemaphore(&value, sem->semid, 0);
-
-    return (Uint32)value;
+    return sem->sem.current_count;
 }
 
 int SDL_SemPost(SDL_sem *sem)
 {
-    int res;
-    Sint32 count;
-
-    if (sem == NULL) {
-        SDL_SetError("Passed a NULL sem");
-        return -1;                
-    }
-
-    res = svcReleaseSemaphore(&count, sem->semid, 1);
-    if (res < 0) {
-        SDL_SetError("svcReleaseSemaphore() failed");
-        return -1;
-    }
-
+    LightSemaphore_Release(&sem->sem, 1);
     return 0;
 }
