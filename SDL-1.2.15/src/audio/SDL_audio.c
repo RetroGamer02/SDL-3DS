@@ -468,7 +468,8 @@ int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained)
 		int samples = (desired->freq / 1000) * 46;
 		int power2 = 1;
 		while ( power2 < samples ) {
-			power2 *= 2;
+			power2 <<= 1;
+			//power2 *= 2;
 		}
 		desired->samples = power2;
 	}
